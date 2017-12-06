@@ -52,17 +52,18 @@ class EnergyMonitor
     void voltageTX(double _VCAL, double _PHASECAL);
     void currentTX(unsigned int _channel, double _ICAL);
 
-    void calcVI(unsigned int crossings, unsigned int timeout);
+    void calcVI(unsigned int crossings, unsigned long timeout);
     double calcIrms(unsigned int NUMBER_OF_SAMPLES);
     void serialprint();
 
     long readVcc();
     //Useful value variables
     double realPower,
-      apparentPower,
-      powerFactor,
-      Vrms,
-      Irms;
+       apparentPower,
+       powerFactor,
+       Vrms,
+       Irms,
+       Freq;
 
   private:
 

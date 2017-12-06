@@ -18,6 +18,8 @@
 #include "WProgram.h"
 #endif
 
+// Enable measuring of Frequency using micros()
+#define FREQ 1
 
 //--------------------------------------------------------------------------------------
 // Sets the pins to be used for voltage and current sensors
@@ -63,7 +65,7 @@ void EnergyMonitor::currentTX(unsigned int _channel, double _ICAL)
 // From a sample window of the mains AC voltage and current.
 // The Sample window length is defined by the number of half wavelengths or crossings we choose to measure.
 //--------------------------------------------------------------------------------------
-void EnergyMonitor::calcVI(unsigned int crossings, unsigned int timeout)
+void EnergyMonitor::calcVI(unsigned int crossings, unsigned long timeout)
 {
   #if defined emonTxV3
   int SupplyVoltage=3300;
@@ -72,28 +74,41 @@ void EnergyMonitor::calcVI(unsigned int crossings, unsigned int timeout)
   #endif
 
   unsigned int crossCount = 0;                             //Used to measure number of times threshold is crossed.
+
   unsigned int numberOfSamples = 0;                        //This is now incremented
 
   //-------------------------------------------------------------------------------------------------------------------------
   // 1) Waits for the waveform to be close to 'zero' (mid-scale adc) part in sin curve.
   //-------------------------------------------------------------------------------------------------------------------------
   boolean st=false;                                  //an indicator to exit the while loop
-
+#if (FREQ)
+  unsigned long start = micros();    //millis()-start makes sure it doesnt get stuck in the loop if there is an error.
+  timeout=timeout*1000;              //convert msec -> usec
+#else
   unsigned long start = millis();    //millis()-start makes sure it doesnt get stuck in the loop if there is an error.
-
+#endif  
   while(st==false)                                   //the while loop...
   {
-    startV = analogRead(inPinV);                    //using the voltage waveform
-    if ((startV < (ADC_COUNTS*0.55)) && (startV > (ADC_COUNTS*0.45))) st=true;  //check its within range
-    if ((millis()-start)>timeout) st = true;
+     startV = analogRead(inPinV);                    //using the voltage waveform
+     if ((startV < (ADC_COUNTS*0.55)) && (startV > (ADC_COUNTS*0.45))) st=true;  //check its within range
+#if (FREQ)
+     if ((micros()-start)>timeout) st = true;
+#else
+     if ((millis()-start)>timeout) st = true;
+#endif     
   }
 
   //-------------------------------------------------------------------------------------------------------------------------
   // 2) Main measurement loop
-  //-------------------------------------------------------------------------------------------------------------------------
-  start = millis();
 
-  while ((crossCount < crossings) && ((millis()-start)<timeout))
+  //------------------------------------------------------------------------------------------------------------------------- 
+  unsigned long sampleTime=0;
+#if (FREQ)
+    start = micros(); //we use micros to measure freq
+#else
+    start = millis(); 
+#endif
+  while ((crossCount < crossings) && ( sampleTime < timeout )) 
   {
     numberOfSamples++;                       //Count number of times looped.
     lastFilteredV = filteredV;               //Used for delay/phase compensation
@@ -103,6 +118,13 @@ void EnergyMonitor::calcVI(unsigned int crossings, unsigned int timeout)
     //-----------------------------------------------------------------------------
     sampleV = analogRead(inPinV);                 //Read in raw voltage signal
     sampleI = analogRead(inPinI);                 //Read in raw current signal
+
+    // Sampletime is time since begin of loop
+#if (FREQ)
+    sampleTime=(micros()-start);
+#else
+    sampleTime=(millis()-start);
+#endif   
 
     //-----------------------------------------------------------------------------
     // B) Apply digital low pass filters to extract the 2.5 V or 1.65 V dc offset,
@@ -149,6 +171,17 @@ void EnergyMonitor::calcVI(unsigned int crossings, unsigned int timeout)
     if (lastVCross != checkVCross) crossCount++;
   }
 
+
+#if (FREQ)
+  //Measure frequency
+   if (sampleTime < timeout) { 
+       Freq = 1000000.0/((sampleTime*2)/crossings);
+   } else {
+       //Ignore timeouts           
+       Freq = 0;
+   }
+#endif  
+
   //-------------------------------------------------------------------------------------------------------------------------
   // 3) Post loop calculations
   //-------------------------------------------------------------------------------------------------------------------------
@@ -164,7 +197,10 @@ void EnergyMonitor::calcVI(unsigned int crossings, unsigned int timeout)
   //Calculation power values
   realPower = V_RATIO * I_RATIO * sumP / numberOfSamples;
   apparentPower = Vrms * Irms;
+  //abs(Real power) could never be > 1
   powerFactor=realPower / apparentPower;
+  if (powerFactor>0) { powerFactor=min(powerFactor,1.0);}
+  else               { powerFactor=max(powerFactor,- 1.0); }
 
   //Reset accumulators
   sumV = 0;
@@ -212,17 +248,22 @@ double EnergyMonitor::calcIrms(unsigned int Number_of_Samples)
 
 void EnergyMonitor::serialprint()
 {
-  Serial.print(realPower);
-  Serial.print(' ');
-  Serial.print(apparentPower);
-  Serial.print(' ');
-  Serial.print(Vrms);
-  Serial.print(' ');
-  Serial.print(Irms);
-  Serial.print(' ');
-  Serial.print(powerFactor);
-  Serial.println(' ');
-  delay(100);
+
+    Serial.print(realPower,4);
+    Serial.print(' ');
+    Serial.print(apparentPower,4);
+    Serial.print(' ');
+    Serial.print(Vrms,4);
+    Serial.print(' ');
+    Serial.print(Irms,4);
+    Serial.print(' ');
+    Serial.print(powerFactor,4);
+    Serial.print(' ');
+#if (FREQ)
+    Serial.print(Freq,4);
+    Serial.print(' ');
+#endif
+    delay(100); 
 }
 
 //thanks to http://hacking.majenko.co.uk/making-accurate-adc-readings-on-arduino
